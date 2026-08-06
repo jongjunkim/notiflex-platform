@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notiflex-api
+  namespace: notiflex
+  labels:
+    app: notiflex-api
+    app.kubernetes.io/part-of: notiflex
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notiflex-api
+  template:
+    metadata:
+      labels:
+        app: notiflex-api
+    spec:
+      containers:
+        - name: api
+          image: asia-northeast3-docker.pkg.dev/gitaiops-notiflex-385f98/notiflex/api:v0.1.0
+          ports:
+            - name: http
+              containerPort: 8080
+          # readiness: 트래픽을 받을 준비가 됐는지. 실패하면 Service 엔드포인트에서 제외된다.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          # liveness: 살아있는지. 실패하면 컨테이너를 재시작한다.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          # scratch 이미지에는 셸도 패키지도 없다. 권한을 최소로 제한한다.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
