@@ -13,7 +13,7 @@
 | ch2 | 2.6 빌드/배포 | ✅ | 2026-08-06 | api:v0.1.0 푸시, Pod 2개 Running, /health·/id 검증 |
 | ch2 | 2.7 첫 커밋 | ✅ | 2026-08-06 | 초기 커밋 및 push |
 | ch2 | 커스텀 스킬 `/update-docs` | ✅ | 2026-08-12 | `.claude/commands/update-docs.md` — 프로젝트 스코프 슬래시 커맨드 |
-| ch3 | 3.2 GitOps 도구 | ⬜ | | |
+| ch3 | 3.2 GitOps 도구 | ✅ | 2026-08-12 | ArgoCD v3.5.1 설치, notiflex-smb Application → Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ⬜ | | |
 | ch3 | 3.4 CI | ⬜ | | |
 | ch3 | 3.5 CI-CD 연결 | ⬜ | | |
@@ -44,6 +44,7 @@
 | 영역 | 선택 | 검토한 대안 | 선택 이유 |
 |------|------|-----------|----------|
 | — | — | — | ch2는 선택지가 없는 환경 구성 단계 |
+| GitOps 배포 도구 (ch3.2) | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 Sync 상태를 눈으로 확인할 수 있어 학습에 유리. Flux는 ~100MB로 가볍지만 UI가 없다. Jenkins X·Spinnaker는 e2-medium 2대에 과중 |
 
 ## 현재 버전
 
@@ -52,7 +53,7 @@
 | Go | 1.25 | 2026-08-06 최초 설정 (ch8 OTel SDK 요구사항 대비) |
 | Notiflex 이미지 | v0.1.0 | 2026-08-06 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) |
 | GKE | 1.35.6-gke.1250000 | 2026-08-06 클러스터 생성 |
-| ArgoCD | | |
+| ArgoCD | v3.5.1 | 2026-08-12 설치 (`quay.io/argoproj/argocd:v3.5.1`) |
 | Kafka | | |
 | OTel SDK | | |
 
@@ -75,6 +76,7 @@
 | Artifact Registry | `asia-northeast3-docker.pkg.dev/gitaiops-notiflex-385f98/notiflex` |
 | Gateway API | CHANNEL_STANDARD (GatewayClass 4개 Accepted) |
 | 배포 전략 | Rolling Update (기본) |
+| GitOps | ArgoCD (`argocd` ns) → `k8s/smb` 자동 동기화 (prune·selfHeal 활성) |
 
 ## 트러블슈팅 이력
 
