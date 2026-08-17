@@ -16,7 +16,7 @@
 | ch3 | 3.2 GitOps 도구 | ✅ | 2026-08-12 | ArgoCD v3.5.1 설치, notiflex-smb Application → Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ✅ | 2026-08-17 | `/version` 엔드포인트 추가, api:v0.1.1 롤링 업데이트 (ArgoCD auto-sync). `git revert`로 v0.1.0 롤백 → 재복구 검증 완료 |
 | ch3 | 3.4 CI | ✅ | 2026-08-17 | GitHub Actions `.github/workflows/ci.yaml` — app/ 변경 시 빌드→AR 푸시, 태그 `sha-<7자리>`. 첫 실행 1분 16초 성공 |
-| ch3 | 3.5 CI-CD 연결 | ⬜ | | |
+| ch3 | 3.5 CI-CD 연결 | ✅ | 2026-08-17 | CI가 빌드 후 매니페스트 태그를 갱신·커밋 → ArgoCD 자동 배포. 엔드투엔드 검증 완료 (코드 push → 약 4분 뒤 Pod 교체) |
 | ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
 | ch4 | 4.3 로그 수집 | ⬜ | | |
 | ch4 | 4.4 알림 | ⬜ | | |
@@ -52,7 +52,7 @@
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-08-06 최초 설정 (ch8 OTel SDK 요구사항 대비) |
-| Notiflex 이미지 | v0.1.1 | 2026-08-06 v0.1.0 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) → 2026-08-17 v0.1.1 (`/version` 추가, digest `sha256:bba1f801…`) |
+| Notiflex 이미지 | `sha-372fa2c` (앱 버전 v0.1.2) | 2026-08-06 v0.1.0 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) → 2026-08-17 v0.1.1 (`/version` 추가, `sha256:bba1f801…`) → 2026-08-17 `sha-372fa2c` (CI 최초 자동 배포, `sha256:de666f35…`) |
 | GKE | 1.35.6-gke.1250000 | 2026-08-06 클러스터 생성 |
 | ArgoCD | v3.5.1 | 2026-08-12 설치 (`quay.io/argoproj/argocd:v3.5.1`) |
 | Kafka | | |
@@ -78,7 +78,8 @@
 | Gateway API | CHANNEL_STANDARD (GatewayClass 4개 Accepted) |
 | 배포 전략 | Rolling Update (기본) |
 | GitOps | ArgoCD (`argocd` ns) → `k8s/smb` 자동 동기화 (prune·selfHeal 활성) |
-| CI | GitHub Actions `.github/workflows/ci.yaml` (`app/**` 변경 시 트리거) |
+| CI/CD | GitHub Actions `.github/workflows/ci.yaml` (`app/**` 변경 시 트리거) → 빌드·푸시 → 매니페스트 태그 갱신 커밋 → ArgoCD가 배포 |
+| Actions 권한 | 저장소 `default_workflow_permissions=write` + 워크플로 `contents: write` (둘 다 필요) |
 | CI 서비스 계정 | `notiflex-ci@gitaiops-notiflex-385f98.iam.gserviceaccount.com` — 권한 `roles/artifactregistry.writer` 하나 |
 | GitHub Secrets | `GCP_SA_KEY`(SA JSON 키), `GCP_PROJECT_ID` |
 | 이미지 태그 규칙 | 수동 배포는 `v0.1.x`, CI 빌드는 `sha-<커밋 7자리>` |
@@ -99,4 +100,6 @@
 | 3.3 | 롤백 후 재복구 push를 했는데 5분이 지나도 ArgoCD가 v0.1.0에 머물렀다 (`status.sync.revision`이 이전 커밋 `93c9381`에 고정, reconcile은 계속 돌고 있었음) | repo-server가 캐시된 Git 리비전을 붙들고 있었다. `kubectl annotate application notiflex-smb -n argocd argocd.argoproj.io/refresh=hard --overwrite`로 캐시 무효화 → 5초 만에 최신 커밋 인식. **증상 구분법**: Application이 `Synced`인데 `status.sync.revision`이 `git ls-remote origin main`과 다르면 캐시 문제다 |
 | 3.4 | 서비스 계정 생성 직후 `add-iam-policy-binding`이 `Service account ... does not exist`로 실패했다 | IAM 전파 지연. 생성과 바인딩을 연달아 실행하면 발생한다. 재시도 루프(10초 간격)로 해결 |
 | 3.4 | `actions/setup-go`에 `cache-dependency-path: app/go.sum`을 주면 실패한다 | 이 앱은 표준 라이브러리만 써서 `go.sum`이 없다. `cache: false`로 설정. 나중에 외부 의존성이 생기면 `go.sum`이 만들어지므로 캐시를 켠다 |
+| 3.5 | 워크플로를 고쳐 push했는데 실행이 아예 생성되지 않았다 | 커밋 메시지 **본문**에 `[skip` `ci]` 문자열을 설명용으로 적은 것을 GitHub이 실제 지시로 읽었다. 제목뿐 아니라 본문까지 스캔한다. 이 키워드는 커밋 메시지에 언급하지 않는다 |
+| 3.5 | CI가 액션 다운로드에서 `429 Too Many Requests`로 실패 경고 | 일시적 GitHub 혼잡. Actions가 자동 백오프 후 재시도해 성공했다. 실패로 처리하지 않아도 된다 |
 | 2.x | 선점 직후 `kube-dns`가 `FailedScheduling — Insufficient cpu`로 뜨지 못했다 | 노드 1대만 Ready인 동안 CPU가 부족해 발생. 두 번째 노드가 Ready가 되면 해소된다. 상시 발생하면 `shared/resource-budget.md` 기준으로 노드 수·머신 타입을 재검토 |
