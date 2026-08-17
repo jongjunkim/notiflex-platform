@@ -1,0 +1,85 @@
+# Notiflex CI — app/ 이 바뀌면 이미지를 빌드해 Artifact Registry에 푸시한다.
+# 매니페스트 태그 갱신(배포)은 아직 수동이다. 3.5에서 이 워크플로에 이어 붙인다.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # 매니페스트나 문서만 고쳤을 때는 빌드하지 않는다. 워크플로 자신이 바뀌면 실행한다.
+      - 'app/**'
+      - '.github/workflows/ci.yaml'
+  # 코드 변경 없이 파이프라인만 확인하고 싶을 때 UI/CLI에서 수동 실행한다.
+  workflow_dispatch:
+
+env:
+  REGION: asia-northeast3
+  REPOSITORY: notiflex
+  IMAGE_NAME: api
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      # 저장소를 읽기만 한다. 매니페스트 push 권한은 3.5에서 필요해진다.
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 이미지 태그는 커밋 SHA 앞 7자리로 만든다.
+      # 어떤 커밋이 배포됐는지 추적되고, 같은 태그를 덮어쓸 일이 없다.
+      - name: Resolve image tag
+        id: meta
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${REPOSITORY}/${IMAGE_NAME}:${TAG}"
+          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "빌드할 이미지: $IMAGE"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          # 외부 의존성이 없어 go.sum이 존재하지 않는다. 캐시를 켜면 경로를 못 찾아 실패한다.
+          cache: false
+
+      # 컨테이너를 만들기 전에 코드가 성립하는지 먼저 확인한다.
+      # 여기서 걸리면 이미지를 만들지 않으므로, 깨진 이미지가 레지스트리에 올라가지 않는다.
+      - name: Vet and test
+        working-directory: app
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # docker 클라이언트가 Artifact Registry에 인증하도록 위임한다.
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        run: docker build -t "${{ steps.meta.outputs.image }}" app/
+
+      - name: Push image
+        run: docker push "${{ steps.meta.outputs.image }}"
+
+      # 배포 담당자가 매니페스트에 넣을 값을 실행 요약에 남긴다. 3.5에서는 이 과정이 자동화된다.
+      - name: Summary
+        run: |
+          {
+            echo "### 이미지 푸시 완료"
+            echo ""
+            echo '```'
+            echo "${{ steps.meta.outputs.image }}"
+            echo '```'
+            echo ""
+            echo "배포하려면 \`k8s/smb/deployment.yaml\`의 image 태그를 \`${{ steps.meta.outputs.tag }}\`로 바꾸고 push한다."
+          } >> "$GITHUB_STEP_SUMMARY"
