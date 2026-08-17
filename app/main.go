@@ -13,7 +13,7 @@ import (
 )
 
 // version은 배포된 이미지 태그와 일치시킨다. 이미지를 새로 빌드할 때마다 함께 올린다.
-const version = "v0.1.1"
+const version = "v0.1.2"
 
 // serviceName은 여러 서비스가 늘어났을 때 응답만 보고 구분하기 위한 식별자이다.
 const serviceName = "notiflex-api"
