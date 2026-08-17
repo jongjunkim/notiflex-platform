@@ -15,7 +15,7 @@
 | ch2 | 커스텀 스킬 `/update-docs` | ✅ | 2026-08-12 | `.claude/commands/update-docs.md` — 프로젝트 스코프 슬래시 커맨드 |
 | ch3 | 3.2 GitOps 도구 | ✅ | 2026-08-12 | ArgoCD v3.5.1 설치, notiflex-smb Application → Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ✅ | 2026-08-17 | `/version` 엔드포인트 추가, api:v0.1.1 롤링 업데이트 (ArgoCD auto-sync). `git revert`로 v0.1.0 롤백 → 재복구 검증 완료 |
-| ch3 | 3.4 CI | ⬜ | | |
+| ch3 | 3.4 CI | ✅ | 2026-08-17 | GitHub Actions `.github/workflows/ci.yaml` — app/ 변경 시 빌드→AR 푸시, 태그 `sha-<7자리>`. 첫 실행 1분 16초 성공 |
 | ch3 | 3.5 CI-CD 연결 | ⬜ | | |
 | ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
 | ch4 | 4.3 로그 수집 | ⬜ | | |
@@ -44,6 +44,7 @@
 | 영역 | 선택 | 검토한 대안 | 선택 이유 |
 |------|------|-----------|----------|
 | — | — | — | ch2는 선택지가 없는 환경 구성 단계 |
+| CI 도구 (ch3.4) | GitHub Actions | Cloud Build, GitLab CI, Jenkins | 코드가 이미 GitHub에 있어 별도 서버·웹훅 없이 YAML 한 파일로 동작. public 저장소라 실행 시간 무료. Cloud Build는 GitHub 트리거를 따로 붙여야 하고 로그를 GitHub 밖에서 봐야 한다 |
 | GitOps 배포 도구 (ch3.2) | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 Sync 상태를 눈으로 확인할 수 있어 학습에 유리. Flux는 ~100MB로 가볍지만 UI가 없다. Jenkins X·Spinnaker는 e2-medium 2대에 과중 |
 
 ## 현재 버전
@@ -77,6 +78,10 @@
 | Gateway API | CHANNEL_STANDARD (GatewayClass 4개 Accepted) |
 | 배포 전략 | Rolling Update (기본) |
 | GitOps | ArgoCD (`argocd` ns) → `k8s/smb` 자동 동기화 (prune·selfHeal 활성) |
+| CI | GitHub Actions `.github/workflows/ci.yaml` (`app/**` 변경 시 트리거) |
+| CI 서비스 계정 | `notiflex-ci@gitaiops-notiflex-385f98.iam.gserviceaccount.com` — 권한 `roles/artifactregistry.writer` 하나 |
+| GitHub Secrets | `GCP_SA_KEY`(SA JSON 키), `GCP_PROJECT_ID` |
+| 이미지 태그 규칙 | 수동 배포는 `v0.1.x`, CI 빌드는 `sha-<커밋 7자리>` |
 
 ## 트러블슈팅 이력
 
@@ -92,4 +97,6 @@
 | 2.x | Spot VM 선점으로 노드 2대가 재생성되고 `Error` 상태 Pod이 남았다 (2026-08-12) | Spot의 정상 동작. 새 노드에 Pod이 재스케줄되면 복구된다. 잔여 `Error` Pod은 `kubectl delete pod --field-selector status.phase=Failed -n notiflex`로 정리. 재발이 잦으면 노드풀을 온디맨드로 전환 |
 | 3.3 | git push 후에도 5분 가까이 v0.1.0 Pod이 그대로였다 | 정상. ArgoCD auto-sync는 기본 3분 주기로 Git을 폴링한다. 즉시 반영하려면 UI에서 Sync 또는 `argocd app sync notiflex-smb`. 3.5에서 CI가 push하면 같은 흐름으로 자동 반영된다 |
 | 3.3 | 롤백 후 재복구 push를 했는데 5분이 지나도 ArgoCD가 v0.1.0에 머물렀다 (`status.sync.revision`이 이전 커밋 `93c9381`에 고정, reconcile은 계속 돌고 있었음) | repo-server가 캐시된 Git 리비전을 붙들고 있었다. `kubectl annotate application notiflex-smb -n argocd argocd.argoproj.io/refresh=hard --overwrite`로 캐시 무효화 → 5초 만에 최신 커밋 인식. **증상 구분법**: Application이 `Synced`인데 `status.sync.revision`이 `git ls-remote origin main`과 다르면 캐시 문제다 |
+| 3.4 | 서비스 계정 생성 직후 `add-iam-policy-binding`이 `Service account ... does not exist`로 실패했다 | IAM 전파 지연. 생성과 바인딩을 연달아 실행하면 발생한다. 재시도 루프(10초 간격)로 해결 |
+| 3.4 | `actions/setup-go`에 `cache-dependency-path: app/go.sum`을 주면 실패한다 | 이 앱은 표준 라이브러리만 써서 `go.sum`이 없다. `cache: false`로 설정. 나중에 외부 의존성이 생기면 `go.sum`이 만들어지므로 캐시를 켠다 |
 | 2.x | 선점 직후 `kube-dns`가 `FailedScheduling — Insufficient cpu`로 뜨지 못했다 | 노드 1대만 Ready인 동안 CPU가 부족해 발생. 두 번째 노드가 Ready가 되면 해소된다. 상시 발생하면 `shared/resource-budget.md` 기준으로 노드 수·머신 타입을 재검토 |
