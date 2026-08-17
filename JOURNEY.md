@@ -14,7 +14,7 @@
 | ch2 | 2.7 첫 커밋 | ✅ | 2026-08-06 | 초기 커밋 및 push |
 | ch2 | 커스텀 스킬 `/update-docs` | ✅ | 2026-08-12 | `.claude/commands/update-docs.md` — 프로젝트 스코프 슬래시 커맨드 |
 | ch3 | 3.2 GitOps 도구 | ✅ | 2026-08-12 | ArgoCD v3.5.1 설치, notiflex-smb Application → Synced/Healthy |
-| ch3 | 3.3 기능 추가 | ⬜ | | |
+| ch3 | 3.3 기능 추가 | ✅ | 2026-08-17 | `/version` 엔드포인트 추가, api:v0.1.1 롤링 업데이트 (ArgoCD auto-sync) |
 | ch3 | 3.4 CI | ⬜ | | |
 | ch3 | 3.5 CI-CD 연결 | ⬜ | | |
 | ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
@@ -51,7 +51,7 @@
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-08-06 최초 설정 (ch8 OTel SDK 요구사항 대비) |
-| Notiflex 이미지 | v0.1.0 | 2026-08-06 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) |
+| Notiflex 이미지 | v0.1.1 | 2026-08-06 v0.1.0 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) → 2026-08-17 v0.1.1 (`/version` 추가, digest `sha256:bba1f801…`) |
 | GKE | 1.35.6-gke.1250000 | 2026-08-06 클러스터 생성 |
 | ArgoCD | v3.5.1 | 2026-08-12 설치 (`quay.io/argoproj/argocd:v3.5.1`) |
 | Kafka | | |
@@ -90,4 +90,5 @@
 | 2.5 | GCP 콘솔 프로젝트 목록에 프로젝트가 보이지 않았다 | 프로젝트가 조직(`rkdlem196-org`) 밖에 있어 조직 범위 선택기에서 누락. 선택기를 "조직 없음"으로 전환하거나 `?project=` 링크로 직접 접근 |
 | 2.6 | `/id`를 여러 번 호출해도 항상 같은 Pod이 응답했다 | 정상 동작. `port-forward`는 Service를 우회해 Pod 하나에 직접 연결한다. Service 분산은 클러스터 내부에서 호출해야 확인 가능 |
 | 2.x | Spot VM 선점으로 노드 2대가 재생성되고 `Error` 상태 Pod이 남았다 (2026-08-12) | Spot의 정상 동작. 새 노드에 Pod이 재스케줄되면 복구된다. 잔여 `Error` Pod은 `kubectl delete pod --field-selector status.phase=Failed -n notiflex`로 정리. 재발이 잦으면 노드풀을 온디맨드로 전환 |
+| 3.3 | git push 후에도 5분 가까이 v0.1.0 Pod이 그대로였다 | 정상. ArgoCD auto-sync는 기본 3분 주기로 Git을 폴링한다. 즉시 반영하려면 UI에서 Sync 또는 `argocd app sync notiflex-smb`. 3.5에서 CI가 push하면 같은 흐름으로 자동 반영된다 |
 | 2.x | 선점 직후 `kube-dns`가 `FailedScheduling — Insufficient cpu`로 뜨지 못했다 | 노드 1대만 Ready인 동안 CPU가 부족해 발생. 두 번째 노드가 Ready가 되면 해소된다. 상시 발생하면 `shared/resource-budget.md` 기준으로 노드 수·머신 타입을 재검토 |
