@@ -44,8 +44,8 @@
 | 영역 | 선택 | 검토한 대안 | 선택 이유 |
 |------|------|-----------|----------|
 | — | — | — | ch2는 선택지가 없는 환경 구성 단계 |
-| CI 도구 (ch3.4) | GitHub Actions | Cloud Build, GitLab CI, Jenkins | 코드가 이미 GitHub에 있어 별도 서버·웹훅 없이 YAML 한 파일로 동작. public 저장소라 실행 시간 무료. Cloud Build는 GitHub 트리거를 따로 붙여야 하고 로그를 GitHub 밖에서 봐야 한다 |
 | GitOps 배포 도구 (ch3.2) | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 Sync 상태를 눈으로 확인할 수 있어 학습에 유리. Flux는 ~100MB로 가볍지만 UI가 없다. Jenkins X·Spinnaker는 e2-medium 2대에 과중 |
+| CI 도구 (ch3.4) | GitHub Actions | Cloud Build, GitLab CI, Jenkins | 코드가 이미 GitHub에 있어 별도 서버·웹훅 없이 YAML 한 파일로 동작. public 저장소라 실행 시간 무료. Cloud Build는 GitHub 트리거를 따로 붙여야 하고 로그를 GitHub 밖에서 봐야 한다 |
 
 ## 현재 버전
 
@@ -62,9 +62,11 @@
 
 | 노드풀 | 머신 타입 | 노드 수 | 주요 워크로드 |
 |--------|----------|---------|-------------|
-| default-pool | e2-medium (Spot, 30GB) | 2 | notiflex-api ×2 |
+| default-pool | e2-medium (Spot, 30GB) | 2 | notiflex-api ×2, ArgoCD 컴포넌트 7개 |
 
 **CPU requests 누적**: 100m / 가용 약 3200m (잔여 약 3100m)
+
+> ArgoCD 기본 설치 매니페스트는 CPU requests를 지정하지 않아 누적값에 잡히지 않는다. 실사용량은 `kubectl top`으로 확인해야 하며, 4장에서 Prometheus를 올릴 때 여유를 다시 점검한다.
 
 ## 인프라 현황
 
