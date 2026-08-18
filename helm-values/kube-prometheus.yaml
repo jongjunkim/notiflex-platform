@@ -1,0 +1,75 @@
+# kube-prometheus-stack values — e2-medium 2노드(allocatable 940m/노드) 제약에 맞춘 설정.
+#
+# 이 클러스터의 실제 여유는 약 466m뿐이다(kube-system이 1198m을 점유).
+# requests는 스케줄러가 자리를 잡을 때 쓰는 예약값일 뿐 실제 사용량 상한이 아니므로,
+# 학습 규모에서는 낮춰 잡아도 동작한다. 실제 사용량은 kubectl top으로 확인한다.
+# ch6에서 CSI DaemonSet(240m, 축소 불가)이 들어오면 이 값들을 더 줄여야 한다.
+
+prometheus:
+  prometheusSpec:
+    # 보존 기간을 줄여 디스크와 메모리 부담을 낮춘다. 학습용으로 3일이면 충분하다.
+    retention: 3d
+    resources:
+      requests:
+        cpu: 50m
+        memory: 400Mi
+      limits:
+        memory: 800Mi
+    # Helm으로 설치하지 않은 ServiceMonitor(직접 만든 것)도 수집하도록 셀렉터를 연다.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # 대시보드를 ConfigMap(label: grafana_dashboard=1)으로 자동 로드한다.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
+# GKE 관리형 컨트롤 플레인은 이 엔드포인트들을 노출하지 않는다.
+# 켜두면 수집 대상이 영구히 Down으로 남아 알림 노이즈가 된다.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+# GKE는 CoreDNS가 아니라 kube-dns를 쓴다. 차트의 CoreDNS 규격(9153 포트)에는
+# 메트릭이 없어 대상이 영구히 Down으로 남는다.
+coreDns:
+  enabled: false

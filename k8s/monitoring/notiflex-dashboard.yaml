@@ -1,0 +1,82 @@
+# Notiflex 전용 Grafana 대시보드.
+# Grafana 사이드카가 label grafana_dashboard=1 인 ConfigMap을 자동으로 로드한다.
+#
+# 주의: 패널은 실제로 존재하는 메트릭만 사용한다.
+#  - CPU/메모리: kubelet(cAdvisor)이 컨테이너 단위로 제공
+#  - 재시작/replica: kube-state-metrics가 K8s API에서 변환해 제공
+# HTTP 요청 수·응답 시간은 앱이 /metrics 를 노출해야 얻을 수 있고, 지금은 노출하지 않는다.
+# 없는 메트릭으로 패널을 만들면 "No data"만 남으므로 넣지 않는다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notiflex-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  notiflex.json: |
+    {
+      "title": "Notiflex API",
+      "uid": "notiflex-api",
+      "tags": ["notiflex"],
+      "timezone": "browser",
+      "time": { "from": "now-6h", "to": "now" },
+      "refresh": "30s",
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "CPU 사용량 (Pod별)",
+          "description": "requests 50m 대비 실제 사용량. ch6에서 requests를 줄일 근거가 된다.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 4 }, "overrides": [] },
+          "targets": [{
+            "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"notiflex\",container=\"api\"}[5m]))",
+            "legendFormat": "{{pod}}",
+            "refId": "A"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "메모리 사용량 (Pod별)",
+          "description": "limits 64Mi에 근접하면 OOMKilled 위험이 있다.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [{
+            "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"notiflex\",container=\"api\"})",
+            "legendFormat": "{{pod}}",
+            "refId": "A"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "가용 replica / 목표 replica",
+          "description": "배포·Spot 선점 중 available이 목표보다 낮아지는 구간이 곧 서비스 축소 구간이다.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas_available{namespace=\"notiflex\",deployment=\"notiflex-api\"}",
+              "legendFormat": "available",
+              "refId": "A"
+            },
+            {
+              "expr": "kube_deployment_spec_replicas{namespace=\"notiflex\",deployment=\"notiflex-api\"}",
+              "legendFormat": "desired",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "컨테이너 재시작 누적 횟수",
+          "description": "증가하면 OOMKill이나 liveness 실패를 의심한다.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+          "targets": [{
+            "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"notiflex\",container=\"api\"})",
+            "legendFormat": "{{pod}}",
+            "refId": "A"
+          }]
+        }
+      ]
+    }
