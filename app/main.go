@@ -4,19 +4,25 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"sync/atomic"
+	"time"
 )
 
 // version은 배포된 이미지 태그와 일치시킨다. 이미지를 새로 빌드할 때마다 함께 올린다.
-const version = "v0.1.2"
+const version = "v0.1.3"
 
 // serviceName은 여러 서비스가 늘어났을 때 응답만 보고 구분하기 위한 식별자이다.
 const serviceName = "notiflex-api"
+
+// logger는 stdout으로 logfmt 형식(key=value)을 찍는다.
+// 컨테이너는 stdout/stderr만 로그로 취급하므로 파일로 쓰지 않는다.
+// logfmt는 사람이 읽을 수 있으면서 Loki에서 `| logfmt`로 필드 파싱이 되는 형식이다.
+var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 // counter는 /id 요청마다 증가하는 인메모리 카운터이다.
 // Pod마다 독립적이므로 replicas가 여러 개면 ID가 Pod별로 따로 증가한다.
@@ -40,7 +46,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		log.Printf("failed to encode response: %v", err)
+		logger.Error("failed to encode response", "error", err)
 	}
 }
 
@@ -69,6 +75,58 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// statusRecorder는 핸들러가 쓴 상태 코드와 바이트 수를 기록한다.
+// http.ResponseWriter는 이 값을 되읽을 방법을 제공하지 않으므로 감싸서 가로챈다.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	// 핸들러가 WriteHeader 없이 바로 Write하면 net/http가 200을 쓴다. 그 경우를 맞춰준다.
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	return n, err
+}
+
+// withLogging은 모든 요청을 한 줄씩 기록한다.
+//
+// /health는 제외한다. readiness가 5초, liveness가 10초마다 호출하므로 Pod 하나당
+// 분당 18줄이 쌓인다. 정보 가치는 없는데 로그 저장소를 채우고, 정작 필요한 요청 로그를
+// 묻어버린다. probe 실패는 Pod 이벤트와 메트릭(4.2 대시보드)에서 확인한다.
+func withLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+
+		logger.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"duration_ms", float64(time.Since(start).Microseconds())/1000,
+			"bytes", rec.bytes,
+			"remote", r.RemoteAddr,
+			"user_agent", r.UserAgent(),
+			"pod", podName,
+		)
+	})
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -80,8 +138,14 @@ func main() {
 	mux.HandleFunc("GET /id", handleID)
 	mux.HandleFunc("GET /version", handleVersion)
 
-	log.Printf("%s %s listening on :%s (pod=%s)", serviceName, version, port, podName)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatalf("server terminated: %v", err)
+	logger.Info("starting",
+		"service", serviceName,
+		"version", version,
+		"port", port,
+		"pod", podName,
+	)
+	if err := http.ListenAndServe(":"+port, withLogging(mux)); err != nil {
+		logger.Error("server terminated", "error", err)
+		os.Exit(1)
 	}
 }
