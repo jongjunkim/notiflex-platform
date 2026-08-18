@@ -18,7 +18,7 @@
 | ch3 | 3.4 CI | ✅ | 2026-08-17 | GitHub Actions `.github/workflows/ci.yaml` — app/ 변경 시 빌드→AR 푸시, 태그 `sha-<7자리>`. 첫 실행 1분 16초 성공 |
 | ch3 | 3.5 CI-CD 연결 | ✅ | 2026-08-17 | CI가 빌드 후 매니페스트 태그를 갱신·커밋 → ArgoCD 자동 배포. 엔드투엔드 검증 완료 (코드 push → 약 4분 뒤 Pod 교체) |
 | ch4 | 4.2 메트릭 모니터링 | ✅ | 2026-08-18 | kube-prometheus-stack (Helm) — Prometheus·Grafana·Alertmanager·kube-state-metrics·node-exporter. 수집 대상 16개 전부 up, Notiflex 대시보드 4패널 |
-| ch4 | 4.3 로그 수집 | ✅ | 2026-08-18 | Loki 3.6.12 (SingleBinary, 5Gi PVC, 보존 72h) + Fluent Bit 5.1.1 DaemonSet ×2 → Grafana Loki 데이터소스. argocd·kube-system·monitoring 로그 수집 확인. **notiflex는 앱이 요청 로그를 찍지 않아 수집할 로그가 없다** |
+| ch4 | 4.3 로그 수집 | ✅ | 2026-08-18 | Loki 3.6.12 (SingleBinary, 5Gi PVC, 보존 72h) + Fluent Bit 5.1.1 DaemonSet ×2 → Grafana Loki 데이터소스. argocd·kube-system·monitoring 로그 수집 확인. 앱에 요청 로깅(logfmt)을 추가해 `{namespace="notiflex"}` 조회까지 검증 완료 |
 | ch4 | 4.4 알림 | ⬜ | | |
 | ch5 | 5.2 트래픽 관리 | ⬜ | | |
 | ch5 | 5.3 무중단 배포 | ⬜ | | |
@@ -54,7 +54,7 @@
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-08-06 최초 설정 (ch8 OTel SDK 요구사항 대비) |
-| Notiflex 이미지 | `sha-372fa2c` (앱 버전 v0.1.2) | 2026-08-06 v0.1.0 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) → 2026-08-17 v0.1.1 (`/version` 추가, `sha256:bba1f801…`) → 2026-08-17 `sha-372fa2c` (CI 최초 자동 배포, `sha256:de666f35…`) |
+| Notiflex 이미지 | `sha-1742514` (앱 버전 v0.1.3) | 2026-08-06 v0.1.0 최초 빌드 (digest `sha256:05b8906d…`, 2.47MB) → 2026-08-17 v0.1.1 (`/version` 추가, `sha256:bba1f801…`) → 2026-08-17 `sha-372fa2c` (CI 최초 자동 배포, `sha256:de666f35…`) → 2026-08-18 `sha-1742514` (요청 로깅 추가, v0.1.3) |
 | GKE | 1.35.6-gke.1250000 | 2026-08-06 클러스터 생성 |
 | ArgoCD | v3.5.1 | 2026-08-12 설치 (`quay.io/argoproj/argocd:v3.5.1`) |
 | kube-prometheus-stack | chart 88.3.0 (operator v0.93.0) | 2026-08-18 설치, Helm revision 2. Prometheus v3.13.2, Grafana 13.1.3, Alertmanager v0.33.1 — requests 축소 적용 |
@@ -120,6 +120,8 @@
 | 3.3 | 롤백 후 재복구 push를 했는데 5분이 지나도 ArgoCD가 v0.1.0에 머물렀다 (`status.sync.revision`이 이전 커밋 `93c9381`에 고정, reconcile은 계속 돌고 있었음) | repo-server가 캐시된 Git 리비전을 붙들고 있었다. `kubectl annotate application notiflex-smb -n argocd argocd.argoproj.io/refresh=hard --overwrite`로 캐시 무효화 → 5초 만에 최신 커밋 인식. **증상 구분법**: Application이 `Synced`인데 `status.sync.revision`이 `git ls-remote origin main`과 다르면 캐시 문제다 |
 | 3.4 | 서비스 계정 생성 직후 `add-iam-policy-binding`이 `Service account ... does not exist`로 실패했다 | IAM 전파 지연. 생성과 바인딩을 연달아 실행하면 발생한다. 재시도 루프(10초 간격)로 해결 |
 | 3.4 | `actions/setup-go`에 `cache-dependency-path: app/go.sum`을 주면 실패한다 | 이 앱은 표준 라이브러리만 써서 `go.sum`이 없다. `cache: false`로 설정. 나중에 외부 의존성이 생기면 `go.sum`이 만들어지므로 캐시를 켠다 |
+| 4.3 | 로그 수집을 붙였는데 `{namespace="notiflex"}`가 계속 0건 | **수집 문제가 아니라 앱이 로그를 안 찍는 문제였다.** 이 앱은 시작 시 한 줄만 남기고 요청은 기록하지 않았다. Fluent Bit은 파일 끝부터 읽으므로(기본값) 과거 한 줄도 지나간다. `log/slog` TextHandler로 요청 로깅을 추가해(v0.1.3) 해결. **중앙 로그 수집은 앱이 로그를 찍어야 의미가 있다** |
+| 4.3 | 요청 로깅에 `/health`를 포함하면 로그가 probe로 도배된다 | readiness 5초 + liveness 10초 = Pod당 분당 18줄, 2 Pod이면 **하루 5.2만 줄**. 미들웨어에서 `/health`를 제외했다 (실측 0건 확인). probe 실패는 Pod 이벤트와 4.2 메트릭 대시보드로 본다 |
 | 4.3 | Loki 차트 기본값으로 설치하면 Pod이 뜨지 않는다 | 기본 캐시가 memcached에 **chunksCache 8192Mi + resultsCache 1024Mi**를 요청한다(노드 전체가 4GB). values에서 `chunksCache.enabled: false`, `resultsCache.enabled: false`. 함께 `gateway`·`lokiCanary`·`test`도 끄고 `read/write/backend` replicas를 0으로 둔다 (SingleBinary 모드) |
 | 4.3 | 가드레일의 `grafana.datasource.isDefault` 키가 loki 차트 7.x에 없다 | 이 버전은 Grafana 데이터소스를 만들어주지 않는다. `k8s/monitoring/loki-datasource.yaml`(label `grafana_datasource=1`)로 직접 정의하고 **`isDefault: false`**를 명시한다. Prometheus가 이미 default라 둘 다 default면 Grafana가 기동에 실패한다 |
 | 4.3 | Grafana에 로그가 `{"time":...,"_p":"F","log":"..."}` JSON으로 보인다 | CRI 멀티라인 파서가 붙이는 `_p`와 수집 시각 `time`이 남아 키가 여러 개라 `drop_single_key`가 작동하지 않는다. `remove_keys kubernetes, stream, time, _p` + `drop_single_key raw` (`on`은 따옴표로 감싼 JSON 문자열이 된다) |
