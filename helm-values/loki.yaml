@@ -1,0 +1,69 @@
+# Loki values — SingleBinary(단일 프로세스) 모드. e2-medium 2노드 제약에 맞춘 설정.
+#
+# ⚠️ 이 차트의 기본값은 이 클러스터에서 절대 뜨지 않는다:
+#    chunksCache 8192Mi + resultsCache 1024Mi 를 memcached에 요청한다(노드 전체가 4GB).
+#    아래에서 두 캐시를 모두 끈다.
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  # 기본 schema_config를 자동 생성한다. 없으면 기동 즉시 CrashLoopBackOff.
+  useTestSchema: true
+  commonConfig:
+    # 단일 인스턴스이므로 복제본은 1이어야 한다. 기본값 3이면 기동하지 않는다.
+    replication_factor: 1
+  storage:
+    type: filesystem
+    # filesystem이어도 최신 차트는 bucketNames를 요구한다.
+    bucketNames:
+      chunks: chunks
+      ruler: ruler
+      admin: admin
+  limits_config:
+    # Prometheus 보존(3d)과 맞춘다.
+    retention_period: 72h
+    # 재시작 직후 밀린 로그가 들어올 수 있으므로 과거 샘플을 거부하지 않는다.
+    reject_old_samples: false
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  # 로그를 보존하는 것이 목적이므로 영속 볼륨을 쓴다.
+  # emptyDir로 두면 Pod 재시작 시 수집한 로그가 사라져 도입 목적이 무너진다.
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: standard-rwo
+  resources:
+    requests:
+      cpu: 10m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+# SingleBinary 모드에서는 마이크로서비스 컴포넌트를 모두 0으로 둔다.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# 기본 캐시는 memcached에 8Gi/1Gi를 요구한다 — 이 클러스터에서는 불가능하다.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+# nginx 게이트웨이는 단일 인스턴스에 불필요하다. Grafana가 loki 서비스로 직접 조회한다.
+gateway:
+  enabled: false
+
+# 자체 점검용 로그 생성기와 테스트 Pod. 학습 환경에서는 리소스만 차지한다.
+lokiCanary:
+  enabled: false
+test:
+  enabled: false

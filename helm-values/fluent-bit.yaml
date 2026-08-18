@@ -1,0 +1,54 @@
+# Fluent Bit values — 노드마다 1개씩(DaemonSet) 떠서 컨테이너 로그를 읽어 Loki로 보낸다.
+#
+# 차트 선택: 가드레일의 grafana/fluent-bit는 deprecated이고 Fluent Bit 2.1.0(2023)을 쓴다.
+# 공식 fluent/fluent-bit(앱 5.1.1)를 쓰고, Fluent Bit에 내장된 loki 출력 플러그인을 사용한다.
+
+kind: DaemonSet
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+config:
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*.log
+        multiline.parser docker, cri
+        Tag kube.*
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+    # 차트 기본값의 systemd(kubelet 저널) 입력은 제외했다.
+    # 노드 저널까지 담으면 5Gi 볼륨이 금방 차고, 지금 필요한 것은 컨테이너 로그다.
+
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        # 앱이 JSON으로 로그를 찍으면 필드로 펼친다. 평문이면 log 키가 그대로 남는다.
+        Merge_Log On
+        Keep_Log Off
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+
+  outputs: |
+    [OUTPUT]
+        Name loki
+        Match kube.*
+        Host loki.monitoring.svc.cluster.local
+        Port 3100
+        # Loki는 라벨만 인덱싱한다. 카디널리티가 폭발하지 않도록 꼭 필요한 것만 라벨로 승격한다.
+        # (예: pod 이름은 재배포마다 바뀌므로 라벨 수가 늘지만, 장애 추적에 필요해 포함한다)
+        labels job=fluent-bit, namespace=$kubernetes['namespace_name'], pod=$kubernetes['pod_name'], container=$kubernetes['container_name'], node=$kubernetes['host']
+        # 위에서 라벨로 뽑은 메타데이터를 본문에서 제거한다.
+        # _p 는 CRI 멀티라인 파서가 붙이는 부분출력 플래그, time 은 수집 시각이다.
+        # 남겨두면 키가 여러 개라 drop_single_key가 동작하지 않아 로그가 JSON으로 감싸인다.
+        remove_keys kubernetes, stream, time, _p
+        # 남은 키가 하나뿐이면 그 값만 보낸다 → Grafana에 원본 로그 줄이 그대로 보인다.
+        # raw: 따옴표 없이 원문 그대로 보낸다. on 으로 두면 JSON 문자열로 감싸여 읽기 불편하다.
+        drop_single_key raw
+        auto_kubernetes_labels off
+        Retry_Limit 5
